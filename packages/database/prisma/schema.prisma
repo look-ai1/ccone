@@ -1,0 +1,371 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StoreStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum StoreApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  PRINTED
+  PARTIALLY_REFUNDED
+  CANCELLED
+  COMPLETED
+}
+
+enum InventoryMovementType {
+  PURCHASE_IN
+  SALE_DEDUCT
+  REFUND_RESTORE
+  ADJUSTMENT
+}
+
+enum RefundItemStatus {
+  UNMADE_RESTORED
+  MADE_LOSS
+}
+
+enum PrintJobStatus {
+  PENDING
+  SENT
+  FAILED
+  RETRYING
+  DONE
+}
+
+model Store {
+  id            String      @id @default(cuid())
+  parentStoreId String?
+  name          String
+  contactName   String?
+  phone         String?
+  status        StoreStatus @default(ACTIVE)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  parent       Store?  @relation("StoreChildren", fields: [parentStoreId], references: [id])
+  children     Store[] @relation("StoreChildren")
+  members      StoreMember[]
+  applications StoreApplication[]
+  dishes       Dish[]
+  ingredients  Ingredient[]
+  orders       Order[]
+
+  @@index([parentStoreId])
+}
+
+model StoreApplication {
+  id             String                 @id @default(cuid())
+  requesterStoreId String
+  requestedName  String
+  applicantName  String?
+  applicantPhone String?
+  reason         String?
+  status         StoreApplicationStatus @default(PENDING)
+  approvedStoreId String?
+  createdAt      DateTime               @default(now())
+  decidedAt      DateTime?
+
+  requesterStore Store @relation(fields: [requesterStoreId], references: [id])
+
+  @@index([requesterStoreId, status])
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  passwordHash String
+  displayName  String
+  isSuperAdmin Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  lastLoginAt  DateTime?
+  memberships  StoreMember[]
+}
+
+model Role {
+  id          String        @id @default(cuid())
+  key         String        @unique
+  name        String
+  permissions String[]
+  members     StoreMember[]
+}
+
+model StoreMember {
+  id        String   @id @default(cuid())
+  storeId   String
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+  role  Role  @relation(fields: [roleId], references: [id])
+
+  @@unique([storeId, userId])
+  @@index([userId])
+}
+
+model Ingredient {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String
+  unit      String   @default("gram")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id])
+  recipeItems RecipeItem[]
+  stockBatches StockBatch[]
+
+  @@unique([storeId, name])
+  @@index([storeId])
+}
+
+model DishCategory {
+  id        String @id @default(cuid())
+  storeId   String
+  name      String
+  sortOrder Int    @default(0)
+
+  dishes Dish[]
+
+  @@unique([storeId, name])
+  @@index([storeId])
+}
+
+model Dish {
+  id              String   @id @default(cuid())
+  storeId         String
+  categoryId      String?
+  name            String
+  priceYuan       Decimal  @db.Decimal(12, 2)
+  imageUrl        String?
+  isAvailable     Boolean  @default(true)
+  activeRecipeVersionId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  store    Store         @relation(fields: [storeId], references: [id])
+  category DishCategory? @relation(fields: [categoryId], references: [id])
+  recipeVersions RecipeVersion[]
+  orderItems OrderItem[]
+
+  @@unique([storeId, name])
+  @@index([storeId, isAvailable])
+}
+
+model RecipeVersion {
+  id        String   @id @default(cuid())
+  storeId   String
+  dishId    String
+  version   Int
+  note      String?
+  createdAt DateTime @default(now())
+
+  dish  Dish @relation(fields: [dishId], references: [id])
+  items RecipeItem[]
+
+  @@unique([dishId, version])
+  @@index([storeId, dishId])
+}
+
+model RecipeItem {
+  id              String  @id @default(cuid())
+  storeId         String
+  recipeVersionId String
+  ingredientId    String
+  gramsPerDish    Decimal @db.Decimal(12, 3)
+
+  recipeVersion RecipeVersion @relation(fields: [recipeVersionId], references: [id])
+  ingredient    Ingredient    @relation(fields: [ingredientId], references: [id])
+
+  @@unique([recipeVersionId, ingredientId])
+  @@index([storeId, ingredientId])
+}
+
+model PurchaseOrder {
+  id              String   @id @default(cuid())
+  storeId          String
+  supplierName     String?
+  sourceImageUrl   String?
+  ocrRawPayload    Json?
+  status           String   @default("DRAFT")
+  purchasedAt      DateTime
+  confirmedAt      DateTime?
+  createdAt        DateTime @default(now())
+
+  items PurchaseOrderItem[]
+
+  @@index([storeId, purchasedAt])
+}
+
+model PurchaseOrderItem {
+  id              String  @id @default(cuid())
+  storeId         String
+  purchaseOrderId String
+  ingredientId    String
+  grams           Decimal @db.Decimal(14, 3)
+  unitCostYuan    Decimal @db.Decimal(12, 4)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  stockBatch    StockBatch?
+
+  @@index([storeId, ingredientId])
+}
+
+model StockBatch {
+  id                  String   @id @default(cuid())
+  storeId             String
+  ingredientId         String
+  purchaseOrderItemId  String?  @unique
+  initialGrams         Decimal  @db.Decimal(14, 3)
+  remainingGrams       Decimal  @db.Decimal(14, 3)
+  unitCostYuan         Decimal  @db.Decimal(12, 4)
+  receivedAt           DateTime
+  createdAt            DateTime @default(now())
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+  purchaseOrderItem PurchaseOrderItem? @relation(fields: [purchaseOrderItemId], references: [id])
+  movements InventoryMovement[]
+  consumptions OrderItemConsumption[]
+
+  @@index([storeId, ingredientId, receivedAt])
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  storeId     String
+  status      OrderStatus @default(DRAFT)
+  tableNo     String?
+  totalYuan   Decimal     @default(0) @db.Decimal(12, 2)
+  costYuan    Decimal     @default(0) @db.Decimal(12, 2)
+  submittedAt DateTime    @default(now())
+  confirmedAt DateTime?
+  completedAt DateTime?
+
+  store Store @relation(fields: [storeId], references: [id])
+  items OrderItem[]
+  printJobs PrintJob[]
+
+  @@index([storeId, status, submittedAt])
+}
+
+model OrderItem {
+  id              String  @id @default(cuid())
+  storeId         String
+  orderId         String
+  dishId          String
+  recipeVersionId String?
+  dishNameSnapshot String
+  quantity        Int
+  priceYuan       Decimal @db.Decimal(12, 2)
+  costYuan        Decimal @default(0) @db.Decimal(12, 2)
+  status          String  @default("ACTIVE")
+
+  order Order @relation(fields: [orderId], references: [id])
+  dish  Dish  @relation(fields: [dishId], references: [id])
+  consumptions OrderItemConsumption[]
+  refunds RefundItem[]
+
+  @@index([storeId, orderId])
+}
+
+model OrderItemConsumption {
+  id          String  @id @default(cuid())
+  storeId     String
+  orderItemId String
+  ingredientId String
+  stockBatchId String
+  grams       Decimal @db.Decimal(14, 3)
+  unitCostYuan Decimal @db.Decimal(12, 4)
+  costYuan    Decimal @db.Decimal(12, 4)
+
+  orderItem  OrderItem  @relation(fields: [orderItemId], references: [id])
+  stockBatch StockBatch @relation(fields: [stockBatchId], references: [id])
+
+  @@index([storeId, orderItemId])
+  @@index([storeId, stockBatchId])
+}
+
+model InventoryMovement {
+  id            String                @id @default(cuid())
+  storeId       String
+  ingredientId  String
+  stockBatchId  String?
+  type          InventoryMovementType
+  gramsDelta    Decimal               @db.Decimal(14, 3)
+  reason        String
+  refId         String?
+  createdAt     DateTime              @default(now())
+
+  stockBatch StockBatch? @relation(fields: [stockBatchId], references: [id])
+
+  @@index([storeId, ingredientId, createdAt])
+}
+
+model RefundItem {
+  id          String           @id @default(cuid())
+  storeId     String
+  orderItemId String
+  status      RefundItemStatus
+  refundYuan  Decimal          @db.Decimal(12, 2)
+  reason      String?
+  createdAt   DateTime         @default(now())
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+
+  @@index([storeId, createdAt])
+}
+
+model PrintJob {
+  id        String         @id @default(cuid())
+  storeId   String
+  orderId   String
+  status    PrintJobStatus @default(PENDING)
+  payload   Json
+  attempts  Int            @default(0)
+  lastError String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([storeId, status, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  storeId   String?
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([storeId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

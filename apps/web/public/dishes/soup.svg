@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="紫菜蛋花汤">
+  <rect width="640" height="420" fill="#edf6f3"/>
+  <ellipse cx="320" cy="238" rx="225" ry="115" fill="#ffffff"/>
+  <ellipse cx="320" cy="238" rx="196" ry="88" fill="#d8efe8"/>
+  <path d="M178 240c58-38 112-40 166-5s102 36 150-2" fill="none" stroke="#7bc4b2" stroke-width="18" stroke-linecap="round"/>
+  <path d="M216 278c54-28 100-24 146 4 48 29 94 28 142-2" fill="none" stroke="#5ba89a" stroke-width="16" stroke-linecap="round"/>
+  <g fill="#2f584b">
+    <path d="M260 188c22 20 18 44-8 58-24-20-20-44 8-58z"/>
+    <path d="M420 248c26 18 24 44-4 60-27-18-25-44 4-60z"/>
+    <path d="M336 286c20 15 18 36-4 48-21-15-19-36 4-48z"/>
+  </g>
+  <g fill="#f7d15b">
+    <ellipse cx="330" cy="215" rx="26" ry="14" transform="rotate(-14 330 215)"/>
+    <ellipse cx="382" cy="268" rx="24" ry="13" transform="rotate(18 382 268)"/>
+  </g>
+</svg>

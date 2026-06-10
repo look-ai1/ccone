@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="青椒肉丝">
+  <rect width="640" height="420" fill="#f4efe6"/>
+  <ellipse cx="320" cy="235" rx="230" ry="110" fill="#f8faf8"/>
+  <ellipse cx="320" cy="235" rx="205" ry="90" fill="#e8ddd0"/>
+  <g stroke-linecap="round" stroke-width="18">
+    <path d="M190 230c64-34 114-32 178 0 54 28 92 25 126-4" stroke="#8b4a2f"/>
+    <path d="M165 260c78-38 144-30 206 8 42 25 78 24 118-4" stroke="#9c5c38"/>
+    <path d="M205 205c62 28 111 27 160-1 42-24 86-22 126 3" stroke="#2f8f4e"/>
+    <path d="M180 285c58-22 126-15 174 12 52 30 98 22 138-2" stroke="#46a65f"/>
+  </g>
+  <circle cx="224" cy="168" r="16" fill="#d14b2f"/>
+  <circle cx="436" cy="292" r="14" fill="#d14b2f"/>
+</svg>

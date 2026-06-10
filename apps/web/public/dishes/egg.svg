@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="番茄炒蛋">
+  <rect width="640" height="420" fill="#f8f1df"/>
+  <ellipse cx="320" cy="236" rx="230" ry="110" fill="#ffffff"/>
+  <ellipse cx="320" cy="236" rx="202" ry="88" fill="#f4e5c3"/>
+  <g>
+    <circle cx="250" cy="220" r="52" fill="#f4c542"/>
+    <circle cx="348" cy="250" r="58" fill="#ffd45a"/>
+    <circle cx="420" cy="210" r="48" fill="#f2bf35"/>
+    <path d="M202 280c70-36 146-34 226 4" fill="none" stroke="#d9472b" stroke-linecap="round" stroke-width="28"/>
+    <path d="M228 190c82 24 158 20 220-8" fill="none" stroke="#e85835" stroke-linecap="round" stroke-width="26"/>
+  </g>
+</svg>
