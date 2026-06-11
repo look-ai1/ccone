@@ -242,7 +242,7 @@ export class InMemoryStore {
     {
       id: "user_store_admin_demo",
       email: "admin@shengduoduo.local",
-      passwordHash: hashPassword("store-admin"),
+      passwordHash: hashPassword(process.env.SEED_STORE_ADMIN_PASSWORD ?? "change-me-in-env"),
       displayName: "门店管理员",
       isSuperAdmin: false
     }

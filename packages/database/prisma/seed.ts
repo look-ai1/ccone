@@ -10,7 +10,16 @@ function hashPassword(password: string) {
   return `pbkdf2$${iterations}$${salt}$${key}`;
 }
 
+function requireEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) throw new Error(`缺少环境变量 ${key}，请在 .env 中设置后再运行 seed`);
+  return value;
+}
+
 async function main() {
+  const seedSuperAdminPassword = requireEnv("SEED_SUPER_ADMIN_PASSWORD");
+  const seedStoreAdminPassword = requireEnv("SEED_STORE_ADMIN_PASSWORD");
+  const seedStaffPassword = requireEnv("SEED_STAFF_PASSWORD");
   const superRole = await prisma.role.upsert({
     where: { key: "SUPER_ADMIN" },
     update: {
@@ -55,32 +64,32 @@ async function main() {
 
   const superAdmin = await prisma.user.upsert({
     where: { email: "shengduoduo.saas" },
-    update: { displayName: "省多多超管", isSuperAdmin: true, passwordHash: hashPassword("sddxms123.") },
+    update: { displayName: "省多多超管", isSuperAdmin: true, passwordHash: hashPassword(seedSuperAdminPassword) },
     create: {
       email: "shengduoduo.saas",
       displayName: "省多多超管",
       isSuperAdmin: true,
-      passwordHash: hashPassword("sddxms123.")
+      passwordHash: hashPassword(seedSuperAdminPassword)
     }
   });
 
   const storeAdmin = await prisma.user.upsert({
     where: { email: "admin@shengduoduo.local" },
-    update: { displayName: "门店管理员", passwordHash: hashPassword("store-admin") },
+    update: { displayName: "门店管理员", passwordHash: hashPassword(seedStoreAdminPassword) },
     create: {
       email: "admin@shengduoduo.local",
       displayName: "门店管理员",
-      passwordHash: hashPassword("store-admin")
+      passwordHash: hashPassword(seedStoreAdminPassword)
     }
   });
 
   const staff = await prisma.user.upsert({
     where: { email: "staff@shengduoduo.local" },
-    update: { displayName: "点餐服务员", passwordHash: hashPassword("staff-demo") },
+    update: { displayName: "点餐服务员", passwordHash: hashPassword(seedStaffPassword) },
     create: {
       email: "staff@shengduoduo.local",
       displayName: "点餐服务员",
-      passwordHash: hashPassword("staff-demo")
+      passwordHash: hashPassword(seedStaffPassword)
     }
   });
 
