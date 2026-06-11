@@ -350,6 +350,8 @@ export default function SuperAdminDashboard({
   const [isLoadingStores, setIsLoadingStores] = useState(false);
   const [isLoadingApplications, setIsLoadingApplications] = useState(false);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
   const [savingConfigKey, setSavingConfigKey] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [lastIsolationCheck, setLastIsolationCheck] = useState("10:00");
@@ -457,17 +459,20 @@ export default function SuperAdminDashboard({
     }
   }
 
-  async function loadAuditLogs() {
+  async function loadAuditLogs(page = 1) {
     setIsLoadingAudit(true);
     try {
-      const response = await fetch(`${API_BASE}/super-admin/audit-logs`, { cache: "no-store", headers: requestHeaders() });
+      const response = await fetch(`${API_BASE}/super-admin/audit-logs?page=${page}&pageSize=20`, { cache: "no-store", headers: requestHeaders() });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      const rows = ((await response.json()) as ApiAuditLog[]).map(toAuditRow);
-      if (rows.length > 0) {
+      const data = (await response.json()) as { items: ApiAuditLog[]; totalPages: number; page: number };
+      const rows = data.items.map(toAuditRow);
+      if (rows.length > 0 || page === 1) {
         setAuditLogs(rows);
       }
+      setAuditPage(data.page);
+      setAuditTotalPages(data.totalPages);
     } catch {
       showNotice("审计日志加载失败，当前显示本地演示数据", "error");
     } finally {
@@ -1103,6 +1108,12 @@ export default function SuperAdminDashboard({
         {activeModule === "audit" ? (
           <section className="console-section">
             <div className="console-panel">
+              <div className="console-toolbar">
+                <span className="muted">共 {auditTotalPages} 页，每页 20 条</span>
+                <button className="button secondary" type="button" onClick={() => void loadAuditLogs(1)}>
+                  <RefreshCw size={15} /> 刷新
+                </button>
+              </div>
               {isLoadingAudit ? <p className="muted">正在加载审计日志...</p> : null}
               <table className="table">
                 <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>结果</th></tr></thead>
@@ -1117,6 +1128,27 @@ export default function SuperAdminDashboard({
                   ))}
                 </tbody>
               </table>
+              {auditTotalPages > 1 ? (
+                <div className="audit-pagination">
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={auditPage <= 1 || isLoadingAudit}
+                    onClick={() => void loadAuditLogs(auditPage - 1)}
+                  >
+                    上一页
+                  </button>
+                  <span className="audit-page-info">第 {auditPage} / {auditTotalPages} 页</span>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={auditPage >= auditTotalPages || isLoadingAudit}
+                    onClick={() => void loadAuditLogs(auditPage + 1)}
+                  >
+                    下一页
+                  </button>
+                </div>
+              ) : null}
             </div>
           </section>
         ) : null}
