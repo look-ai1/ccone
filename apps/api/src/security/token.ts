@@ -17,7 +17,9 @@ function base64UrlDecode(value: string) {
 }
 
 function secret() {
-  return process.env.JWT_SECRET ?? "dev-only-secret-change-before-production-32";
+  const value = process.env.JWT_SECRET;
+  if (!value) throw new Error("JWT_SECRET is not set");
+  return value;
 }
 
 export function signToken(payload: Omit<AuthTokenPayload, "exp">, ttlSeconds = 60 * 60 * 12) {
