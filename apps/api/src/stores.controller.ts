@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Param, Patch, Post, Get, Query } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { InMemoryStore } from "./in-memory-store.js";
@@ -6,6 +7,10 @@ import { PrismaService } from "./prisma.service.js";
 import { hashPassword } from "./security/password.js";
 import { RequireSuperAdmin, RequirePermissions } from "./auth.decorators.js";
 import { TenantContext, type TenantContextValue } from "./tenant-context.js";
+
+// 超管写操作：60 秒内最多 30 次；读操作：60 秒内最多 120 次
+const SUPER_WRITE = { default: { ttl: 60_000, limit: 30 } };
+const SUPER_READ  = { default: { ttl: 60_000, limit: 120 } };
 
 @Controller()
 export class StoresController {
@@ -98,19 +103,21 @@ export class StoresController {
 
   @Get("super-admin/stores")
   @RequireSuperAdmin()
+  @Throttle(SUPER_READ)
   async listStores() {
     try {
       return await this.prisma.store.findMany({
         orderBy: { createdAt: "desc" }
       });
     } catch (error) {
-      console.error("[DB_FALLBACK] listStores falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] listStores:", (error as NodeJS.ErrnoException).code ?? "unknown");
       return this.store.listStores();
     }
   }
 
   @Get("super-admin/stats")
   @RequireSuperAdmin()
+  @Throttle(SUPER_READ)
   async stats() {
     try {
       const [totalStores, activeStores, suspendedStores, pendingApplications, approvedApplications, rejectedApplications] = await Promise.all([
@@ -123,13 +130,14 @@ export class StoresController {
       ]);
       return { totalStores, activeStores, suspendedStores, pendingApplications, approvedApplications, rejectedApplications };
     } catch (error) {
-      console.error("[DB_FALLBACK] stats falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] stats:", (error as NodeJS.ErrnoException).code ?? "unknown");
       return this.store.stats();
     }
   }
 
   @Post("super-admin/stores")
   @RequireSuperAdmin()
+  @Throttle(SUPER_WRITE)
   async createStore(@TenantContext() tenant: TenantContextValue, @Body() body: { name: string; parentStoreId?: string; contactName?: string; phone?: string }) {
     try {
       const result = await this.prisma.$transaction(async (tx) => {
@@ -157,7 +165,7 @@ export class StoresController {
       });
       return result;
     } catch (error) {
-      console.error("[DB_FALLBACK] createStore falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] createStore:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const result = this.store.createStoreWithAdmin(body.name, body.parentStoreId, { contactName: body.contactName, phone: body.phone });
       this.store.addAudit({
         actorId: tenant.actorId,
@@ -172,6 +180,7 @@ export class StoresController {
 
   @Patch("super-admin/stores/:id")
   @RequireSuperAdmin()
+  @Throttle(SUPER_WRITE)
   async updateStore(@TenantContext() tenant: TenantContextValue, @Param("id") id: string, @Body() body: { name?: string; contactName?: string; phone?: string; status?: "ACTIVE" | "SUSPENDED" }) {
     try {
       const updated = await this.prisma.store.update({
@@ -186,7 +195,7 @@ export class StoresController {
       await this.writeAudit({ actorId: tenant.actorId, action: `更新门店：${updated.name}`, entity: "store", entityId: updated.id, payload: { result: "成功", status: updated.status } });
       return updated;
     } catch (error) {
-      console.error("[DB_FALLBACK] updateStore falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] updateStore:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const updated = this.store.updateStore(id, body);
       this.store.addAudit({ actorId: tenant.actorId, action: `更新门店：${updated.name}`, entity: "store", entityId: updated.id, payload: { result: "成功", status: updated.status } });
       return updated;
@@ -195,6 +204,7 @@ export class StoresController {
 
   @Patch("super-admin/stores/:id/suspend")
   @RequireSuperAdmin()
+  @Throttle(SUPER_WRITE)
   async suspendStore(@TenantContext() tenant: TenantContextValue, @Param("id") id: string) {
     try {
       const suspended = await this.prisma.store.update({
@@ -204,7 +214,7 @@ export class StoresController {
       await this.writeAudit({ actorId: tenant.actorId, action: `停用门店：${suspended.name}`, entity: "store", entityId: suspended.id, payload: { result: "成功" } });
       return suspended;
     } catch (error) {
-      console.error("[DB_FALLBACK] suspendStore falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] suspendStore:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const suspended = this.store.suspendStore(id);
       this.store.addAudit({ actorId: tenant.actorId, action: `停用门店：${suspended.name}`, entity: "store", entityId: suspended.id, payload: { result: "成功" } });
       return suspended;
@@ -213,6 +223,7 @@ export class StoresController {
 
   @Post("super-admin/stores/:id/reset-admin")
   @RequireSuperAdmin()
+  @Throttle(SUPER_WRITE)
   async resetStoreAdmin(@TenantContext() tenant: TenantContextValue, @Param("id") id: string) {
     try {
       const result = await this.prisma.$transaction(async (tx) => {
@@ -249,7 +260,7 @@ export class StoresController {
         notice: "请将此临时密码安全传达给管理员，页面关闭后无法再次查看"
       };
     } catch (error) {
-      console.error("[DB_FALLBACK] resetStoreAdmin falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] resetStoreAdmin:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const adminCredential = this.store.createOrResetStoreAdmin(id, {});
       this.store.addAudit({
         actorId: tenant.actorId,
@@ -285,7 +296,7 @@ export class StoresController {
       await this.writeAudit({ storeId: tenant.storeId, actorId: tenant.actorId, action: `提交子门店申请：${application.requestedName}`, entity: "storeApplication", entityId: application.id, payload: { result: "成功" } });
       return application;
     } catch (error) {
-      console.error("[DB_FALLBACK] applySubStore falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] applySubStore:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const application = this.store.applySubStore(tenant.storeId, body.requestedName, { applicantName: body.applicantName, applicantPhone: body.applicantPhone, reason: body.reason });
       this.store.addAudit({ storeId: tenant.storeId, actorId: tenant.actorId, action: `提交子门店申请：${application.requestedName}`, entity: "storeApplication", entityId: application.id, payload: { result: "成功" } });
       return application;
@@ -294,6 +305,7 @@ export class StoresController {
 
   @Get("super-admin/sub-store-applications")
   @RequireSuperAdmin()
+  @Throttle(SUPER_READ)
   async listApplications() {
     try {
       return await this.prisma.storeApplication.findMany({
@@ -301,13 +313,14 @@ export class StoresController {
         orderBy: { createdAt: "desc" }
       });
     } catch (error) {
-      console.error("[DB_FALLBACK] listApplications falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] listApplications:", (error as NodeJS.ErrnoException).code ?? "unknown");
       return this.store.listApplications();
     }
   }
 
   @Post("super-admin/sub-store-applications/:id/approve")
   @RequireSuperAdmin()
+  @Throttle(SUPER_WRITE)
   async approveApplication(@TenantContext() tenant: TenantContextValue, @Param("id") id: string) {
     try {
       const result = await this.prisma.$transaction(async (tx) => {
@@ -349,7 +362,7 @@ export class StoresController {
       });
       return result;
     } catch (error) {
-      console.error("[DB_FALLBACK] approveApplication falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] approveApplication:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const result = this.store.approveApplication(id);
       this.store.addAudit({
         actorId: tenant.actorId,
@@ -364,6 +377,7 @@ export class StoresController {
 
   @Post("super-admin/sub-store-applications/:id/reject")
   @RequireSuperAdmin()
+  @Throttle(SUPER_WRITE)
   async rejectApplication(@TenantContext() tenant: TenantContextValue, @Param("id") id: string) {
     try {
       const rejected = await this.prisma.storeApplication.update({
@@ -376,7 +390,7 @@ export class StoresController {
       await this.writeAudit({ actorId: tenant.actorId, action: `拒绝子门店申请：${rejected.requestedName}`, entity: "storeApplication", entityId: id, payload: { result: "成功" } });
       return rejected;
     } catch (error) {
-      console.error("[DB_FALLBACK] rejectApplication falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] rejectApplication:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const rejected = this.store.rejectApplication(id);
       this.store.addAudit({ actorId: tenant.actorId, action: `拒绝子门店申请：${rejected.requestedName}`, entity: "storeApplication", entityId: id, payload: { result: "成功" } });
       return rejected;
@@ -385,6 +399,7 @@ export class StoresController {
 
   @Get("super-admin/audit-logs")
   @RequireSuperAdmin()
+  @Throttle(SUPER_READ)
   async listAuditLogs(
     @Query("page") pageStr?: string,
     @Query("pageSize") pageSizeStr?: string
@@ -403,7 +418,7 @@ export class StoresController {
       ]);
       return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
     } catch (error) {
-      console.error("[DB_FALLBACK] listAuditLogs falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] listAuditLogs:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const allLogs = this.store.listAuditLogs();
       const items = allLogs.slice(skip, skip + pageSize);
       return { items, total: allLogs.length, page, pageSize, totalPages: Math.ceil(allLogs.length / pageSize) };
@@ -412,6 +427,7 @@ export class StoresController {
 
   @Post("super-admin/isolation-check")
   @RequireSuperAdmin()
+  @Throttle(SUPER_WRITE)
   async runIsolationCheck(@TenantContext() tenant: TenantContextValue) {
     try {
       const [totalStores, rootStores, childStores, allStores, orphanDishes, orphanIngredients, orphanOrders] = await Promise.all([
@@ -446,7 +462,7 @@ export class StoresController {
       await this.writeAudit({ actorId: tenant.actorId, action: "执行租户隔离检查", entity: "tenantIsolation", entityId: "latest", payload: result });
       return result;
     } catch (error) {
-      console.error("[DB_FALLBACK] runIsolationCheck falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] runIsolationCheck:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const stats = this.store.stats();
       const result = {
         status: "NORMAL",
@@ -464,19 +480,21 @@ export class StoresController {
 
   @Get("super-admin/system-configs")
   @RequireSuperAdmin()
+  @Throttle(SUPER_READ)
   async listSystemConfigs() {
     try {
       return await this.prisma.systemConfig.findMany({
         orderBy: { key: "asc" }
       });
     } catch (error) {
-      console.error("[DB_FALLBACK] listSystemConfigs falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] listSystemConfigs:", (error as NodeJS.ErrnoException).code ?? "unknown");
       return this.store.listSystemConfigs();
     }
   }
 
   @Patch("super-admin/system-configs/:key")
   @RequireSuperAdmin()
+  @Throttle(SUPER_WRITE)
   async updateSystemConfig(@TenantContext() tenant: TenantContextValue, @Param("key") key: string, @Body() body: { value?: unknown }) {
     if (body.value === undefined) {
       throw new BadRequestException("Missing config value");
@@ -490,7 +508,7 @@ export class StoresController {
       await this.writeAudit({ actorId: tenant.actorId, action: `保存系统配置：${key}`, entity: "systemConfig", entityId: key, payload: { result: "成功" } });
       return config;
     } catch (error) {
-      console.error("[DB_FALLBACK] updateSystemConfig falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] updateSystemConfig:", (error as NodeJS.ErrnoException).code ?? "unknown");
       const config = this.store.updateSystemConfig(key, body.value);
       this.store.addAudit({ actorId: tenant.actorId, action: `保存系统配置：${key}`, entity: "systemConfig", entityId: key, payload: { result: "成功" } });
       return config;

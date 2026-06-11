@@ -117,7 +117,7 @@ export class AdminDashboardController {
         }))
       };
     } catch (error) {
-      console.error("[DB_FALLBACK] dashboard falling back to in-memory store:", error);
+      console.error("[DB_FALLBACK] dashboard:", (error as NodeJS.ErrnoException).code ?? "unknown");
       return this.store.adminDashboard(tenant.storeId);
     }
   }
