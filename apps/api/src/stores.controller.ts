@@ -404,8 +404,8 @@ export class StoresController {
     @Query("page") pageStr?: string,
     @Query("pageSize") pageSizeStr?: string
   ) {
-    const page = Math.max(1, Number(pageStr ?? "1") || 1);
-    const pageSize = Math.min(200, Math.max(1, Number(pageSizeStr ?? "50") || 50));
+    const page = Math.max(1, parseInt(pageStr ?? "1", 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(pageSizeStr ?? "50", 10) || 50));
     const skip = (page - 1) * pageSize;
     try {
       const [items, total] = await Promise.all([
