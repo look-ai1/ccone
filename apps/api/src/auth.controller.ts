@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Post, ServiceUnavailableException, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, ServiceUnavailableException, UnauthorizedException, UseGuards, BadRequestException } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { PrismaService } from "./prisma.service.js";
-import { verifyPassword } from "./security/password.js";
+import { verifyPassword, hashPassword } from "./security/password.js";
 import { signToken } from "./security/token.js";
 import { CurrentUser } from "./auth.decorators.js";
 import { PermissionGuard } from "./auth.guard.js";
@@ -80,5 +80,41 @@ export class AuthController {
   @UseGuards(PermissionGuard)
   me(@CurrentUser() user?: AuthenticatedUser) {
     return user ?? null;
+  }
+
+  @Post("change-password")
+  @UseGuards(PermissionGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  async changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { currentPassword: string; newPassword: string }
+  ) {
+    if (!body.currentPassword || !body.newPassword) {
+      throw new BadRequestException("Missing required fields");
+    }
+    if (body.newPassword.length < 8) {
+      throw new BadRequestException("New password must be at least 8 characters");
+    }
+    if (body.newPassword.length > 1024) {
+      throw new BadRequestException("New password too long");
+    }
+    if (body.currentPassword === body.newPassword) {
+      throw new BadRequestException("New password must differ from current password");
+    }
+
+    const dbUser = await this.prisma.user.findUnique({ where: { id: user.id } });
+    if (!dbUser) {
+      throw new UnauthorizedException("User not found");
+    }
+    if (!verifyPassword(body.currentPassword, dbUser.passwordHash)) {
+      throw new UnauthorizedException("Current password is incorrect");
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: hashPassword(body.newPassword) }
+    });
+
+    return { message: "Password updated successfully" };
   }
 }

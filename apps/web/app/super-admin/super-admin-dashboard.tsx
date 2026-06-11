@@ -340,13 +340,20 @@ export default function SuperAdminDashboard({
   const [applications, setApplications] = useState<ApplicationRow[]>(initialApplications);
   const [auditLogs, setAuditLogs] = useState<AuditRow[]>(initialAuditLogs);
   const [configs, setConfigs] = useState<ConfigState>(defaultConfigs);
+  const [passwordDraft, setPasswordDraft] = useState({ current: "", next: "", confirm: "" });
+  const [passwordErrors, setPasswordErrors] = useState<Partial<{ current: string; next: string; confirm: string }>>({});
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createDraft, setCreateDraft] = useState({ name: "", contactName: "", phone: "" });
+  const [createErrors, setCreateErrors] = useState<Partial<{ name: string; contactName: string; phone: string }>>({});
   const [isLoadingStores, setIsLoadingStores] = useState(false);
   const [isLoadingApplications, setIsLoadingApplications] = useState(false);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
   const [savingConfigKey, setSavingConfigKey] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [lastIsolationCheck, setLastIsolationCheck] = useState("10:00");
+  const [isolationIssues, setIsolationIssues] = useState(0);
   const [selectedStore, setSelectedStore] = useState<StoreRow | null>(initialStores[0]);
   const [storeDraft, setStoreDraft] = useState<StoreRow>(initialStores[0]);
   const [hoveredTrend, setHoveredTrend] = useState<TrendPoint | null>(null);
@@ -480,16 +487,35 @@ export default function SuperAdminDashboard({
     }
   }
 
-  async function createDemoStore() {
+  function openCreateModal() {
+    setCreateDraft({ name: "", contactName: "", phone: "" });
+    setCreateErrors({});
+    setShowCreateModal(true);
+  }
+
+  function validateCreateDraft() {
+    const errors: Partial<{ name: string; contactName: string; phone: string }> = {};
+    if (!createDraft.name.trim()) errors.name = "门店名称不能为空";
+    if (!createDraft.contactName.trim()) errors.contactName = "联系人不能为空";
+    if (!createDraft.phone.trim()) errors.phone = "手机号不能为空";
+    else if (!/^\d{11}$/.test(createDraft.phone.trim())) errors.phone = "请输入 11 位手机号";
+    setCreateErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  async function submitCreateStore() {
+    if (!validateCreateDraft()) return;
     setIsCreating(true);
     showNotice("", "success");
     try {
-      const name = `新增门店 ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
-      const phone = `139${Date.now().toString().slice(-8)}`;
       const response = await fetch(`${API_BASE}/super-admin/stores`, {
         method: "POST",
         headers: requestHeaders(true),
-        body: JSON.stringify({ name, contactName: "新店管理员", phone })
+        body: JSON.stringify({
+          name: createDraft.name.trim(),
+          contactName: createDraft.contactName.trim(),
+          phone: createDraft.phone.trim()
+        })
       });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -499,6 +525,7 @@ export default function SuperAdminDashboard({
       setStores((current) => [created, ...current]);
       setSelectedStore(created);
       setLatestCredential(result.adminCredential ?? null);
+      setShowCreateModal(false);
       await onStatsRefresh();
       await loadAuditLogs();
       showNotice(result.adminCredential ? "门店已新增，管理员账号已生成" : "门店已新增，统计已刷新");
@@ -660,9 +687,10 @@ export default function SuperAdminDashboard({
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      const result = (await response.json()) as { checkedAt: string };
+      const result = (await response.json()) as { checkedAt: string; crossTenantIssues: number };
       const checkedAt = new Date(result.checkedAt).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
       setLastIsolationCheck(checkedAt);
+      setIsolationIssues(result.crossTenantIssues);
       showNotice("租户隔离检查完成，未发现跨门店数据访问");
       await loadAuditLogs();
     } catch {
@@ -683,8 +711,48 @@ export default function SuperAdminDashboard({
     }));
   }
 
-  async function saveConfig(key: keyof ConfigState, name: string) {
-    setSavingConfigKey(key);
+  function validatePasswordDraft() {
+    const errors: Partial<{ current: string; next: string; confirm: string }> = {};
+    if (!passwordDraft.current) errors.current = "请输入当前密码";
+    if (!passwordDraft.next) errors.next = "请输入新密码";
+    else if (passwordDraft.next.length < 8) errors.next = "新密码至少 8 位";
+    else if (passwordDraft.next === passwordDraft.current) errors.next = "新密码不能与当前密码相同";
+    if (!passwordDraft.confirm) errors.confirm = "请确认新密码";
+    else if (passwordDraft.next && passwordDraft.confirm !== passwordDraft.next) errors.confirm = "两次输入的密码不一致";
+    setPasswordErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  async function changePassword() {
+    if (!validatePasswordDraft()) return;
+    setIsChangingPassword(true);
+    try {
+      const response = await fetch(`${API_BASE}/auth/change-password`, {
+        method: "POST",
+        headers: requestHeaders(true),
+        body: JSON.stringify({ currentPassword: passwordDraft.current, newPassword: passwordDraft.next })
+      });
+      if (response.status === 401) {
+        setPasswordErrors({ current: "当前密码不正确" });
+        return;
+      }
+      if (!response.ok) {
+        const data = (await response.json()) as { message?: string };
+        showNotice(data.message ?? "修改密码失败", "error");
+        return;
+      }
+      setPasswordDraft({ current: "", next: "", confirm: "" });
+      setPasswordErrors({});
+      showNotice("密码已修改，下次登录请使用新密码");
+      addAudit("修改超管密码");
+    } catch {
+      showNotice("修改密码失败，请确认 API 服务已启动", "error");
+    } finally {
+      setIsChangingPassword(false);
+    }
+  }
+
+  async function saveConfig(key: keyof ConfigState, name: string) {    setSavingConfigKey(key);
     try {
       const response = await fetch(`${API_BASE}/super-admin/system-configs/${key}`, {
         method: "PATCH",
@@ -834,8 +902,8 @@ export default function SuperAdminDashboard({
                 <input placeholder="搜索门店名称、联系人、手机号" value={storeKeyword} onChange={(event) => setStoreKeyword(event.target.value)} />
               </label>
               {isLoadingStores ? <span className="muted">正在加载门店...</span> : null}
-              <button className="button blue" disabled={isCreating} type="button" onClick={createDemoStore}>
-                <Plus size={16} /> {isCreating ? "新增中" : "新增门店"}
+              <button className="button blue" type="button" onClick={openCreateModal}>
+                <Plus size={16} /> 新增门店
               </button>
             </div>
             <div className="console-panel-grid">
@@ -950,7 +1018,7 @@ export default function SuperAdminDashboard({
               <div className="console-panel">
                 <div className="console-stat-grid compact">
                   <StatCard label="数据隔离状态" value="正常" tone="green" />
-                  <StatCard label="异常数据数量" value="0" tone="red" />
+                  <StatCard label="异常数据数量" value={isolationIssues} tone="red" />
                   <StatCard label="今日检查时间" value={lastIsolationCheck} />
                 </div>
                 <button className="button blue" disabled={isChecking} type="button" onClick={runIsolationCheck}>
@@ -985,6 +1053,50 @@ export default function SuperAdminDashboard({
               <label>后厨<input className="input" value={configs.permissions.kitchen} onChange={(event) => updateConfig("permissions", "kitchen", event.target.value)} /></label>
               <button className="button secondary" disabled={savingConfigKey === "permissions"} type="button" onClick={() => saveConfig("permissions", "权限模板")}>{savingConfigKey === "permissions" ? "保存中" : "保存模板"}</button>
             </div>
+            <div className="console-panel config-card">
+              <strong>修改超管密码</strong>
+              <div className="modal-field">
+                <span>当前密码</span>
+                <input
+                  className={`input${passwordErrors.current ? " input-error" : ""}`}
+                  type="password"
+                  autoComplete="current-password"
+                  value={passwordDraft.current}
+                  onChange={(event) => setPasswordDraft((d) => ({ ...d, current: event.target.value }))}
+                />
+                {passwordErrors.current ? <span className="field-error">{passwordErrors.current}</span> : null}
+              </div>
+              <div className="modal-field">
+                <span>新密码（至少 8 位）</span>
+                <input
+                  className={`input${passwordErrors.next ? " input-error" : ""}`}
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordDraft.next}
+                  onChange={(event) => setPasswordDraft((d) => ({ ...d, next: event.target.value }))}
+                />
+                {passwordErrors.next ? <span className="field-error">{passwordErrors.next}</span> : null}
+              </div>
+              <div className="modal-field">
+                <span>确认新密码</span>
+                <input
+                  className={`input${passwordErrors.confirm ? " input-error" : ""}`}
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordDraft.confirm}
+                  onChange={(event) => setPasswordDraft((d) => ({ ...d, confirm: event.target.value }))}
+                />
+                {passwordErrors.confirm ? <span className="field-error">{passwordErrors.confirm}</span> : null}
+              </div>
+              <button
+                className="button blue"
+                type="button"
+                disabled={isChangingPassword}
+                onClick={() => { void changePassword(); }}
+              >
+                {isChangingPassword ? "修改中…" : "确认修改密码"}
+              </button>
+            </div>
           </section>
         ) : null}
 
@@ -1009,6 +1121,59 @@ export default function SuperAdminDashboard({
           </section>
         ) : null}
       </section>
+
+      {showCreateModal ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-store-title">
+          <div className="modal-card">
+            <header className="modal-header">
+              <h2 id="create-store-title">新增门店</h2>
+              <button className="modal-close" type="button" aria-label="关闭" onClick={() => setShowCreateModal(false)}>✕</button>
+            </header>
+            <form
+              className="modal-body"
+              onSubmit={(event) => { event.preventDefault(); void submitCreateStore(); }}
+            >
+              <label className="modal-field">
+                <span>门店名称 <em>*</em></span>
+                <input
+                  className={`input${createErrors.name ? " input-error" : ""}`}
+                  placeholder="例：川湘轩朝阳店"
+                  value={createDraft.name}
+                  onChange={(event) => setCreateDraft((d) => ({ ...d, name: event.target.value }))}
+                />
+                {createErrors.name ? <span className="field-error">{createErrors.name}</span> : null}
+              </label>
+              <label className="modal-field">
+                <span>联系人 <em>*</em></span>
+                <input
+                  className={`input${createErrors.contactName ? " input-error" : ""}`}
+                  placeholder="例：张三"
+                  value={createDraft.contactName}
+                  onChange={(event) => setCreateDraft((d) => ({ ...d, contactName: event.target.value }))}
+                />
+                {createErrors.contactName ? <span className="field-error">{createErrors.contactName}</span> : null}
+              </label>
+              <label className="modal-field">
+                <span>手机号 <em>*</em></span>
+                <input
+                  className={`input${createErrors.phone ? " input-error" : ""}`}
+                  placeholder="11 位手机号，将作为管理员登录账号"
+                  value={createDraft.phone}
+                  maxLength={11}
+                  onChange={(event) => setCreateDraft((d) => ({ ...d, phone: event.target.value }))}
+                />
+                {createErrors.phone ? <span className="field-error">{createErrors.phone}</span> : null}
+              </label>
+              <footer className="modal-footer">
+                <button className="button secondary" type="button" onClick={() => setShowCreateModal(false)}>取消</button>
+                <button className="button blue" type="submit" disabled={isCreating}>
+                  {isCreating ? "创建中…" : "确认新增"}
+                </button>
+              </footer>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
