@@ -47,9 +47,7 @@ npm run db:setup
 
 种子账号：
 
-- 超管：`shengduoduo.saas` / `sddxms123.`
-- 门店管理员：`admin@shengduoduo.local` / `store-admin`
-- 点餐服务员：`staff@shengduoduo.local` / `staff-demo`
+- 超管、门店管理员、服务员的账号密码见 `packages/database/prisma/seed.ts`，不在文档中记录。
 
 没有完成数据库迁移和 seed 前，API 会降级到本地内存演示数据；这只能用于开发预览，不能作为验收生产数据。
 
